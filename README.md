@@ -120,9 +120,9 @@ The backend publishes the notification to two queues, one for each channel. Prog
 
 // Benefits
 
-RabbitMQ absorbs the load spike.
+--> RabbitMQ absorbs the load spike.
     
-You can do some maintenance on the notification managers without interrupting the whole service.
+--> You can do some maintenance on the notification managers without interrupting the whole service.
 
 
 - `Remote Procedure Call`
@@ -139,9 +139,9 @@ This topology allows the processing of orders to be serialized to serve them in 
 
 // Benefits
 
-A RabbitMQ client can be a publisher and a consumer at the same time.
+--> A RabbitMQ client can be a publisher and a consumer at the same time.
 
-RabbitMQ can be used to `dispatch RPC calls`.
+--> RabbitMQ can be used to `dispatch RPC calls`.
 
 
 - `Streaming`
@@ -154,9 +154,9 @@ The upload service appends “New video” events to a RabbitMQ stream. Multiple
 
 // Benefits
 
-Streams are very efficient and avoids the need to duplicate messages.
+--> Streams are very efficient and avoids the need to duplicate messages.
     
-A consumers can go back and forth in the stream even if there are concurrent consumers.
+--> A consumers can go back and forth in the stream even if there are concurrent consumers.
 
 - `IoT`
 
@@ -171,9 +171,270 @@ When planets are aligned, the drone's RabbitMQ shovels all reports to the upstre
 
 // Benefits
 
-RabbitMQ deployments can be chained to cater for different needs in your service, using features such as shovels and federation.
+--> RabbitMQ deployments can be chained to cater for different needs in your service, using features such as shovels and federation.
 
-MQTT is well suited for millions of concurrent connections.
+--> MQTT is well suited for millions of concurrent connections.
+
+
+# Installing RabbitMQ
+
+The latest release of RabbitMQ is `3.13.7`.  can be installed & run using Docker
+
+```bash 
+docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3.13-management
+```
+
+for full fledge installtion on specific OS, go through documentation
+
+https://www.rabbitmq.com/docs/download
+
+
+# About RabbitMQ Jargons (terms used to describe Services)
+
+RabbitMQ is a message broker: it accepts and forwards messages. You can think about it as a post office: when you put the mail that you want posting in a post box, you can be sure that the letter carrier will eventually deliver the mail to your recipient. In this analogy, RabbitMQ is a post box, a post office, and a letter carrier.
+
+
+The major difference between RabbitMQ and the post office is that it doesn't deal with paper, instead it accepts, stores, and forwards binary blobs of data ‒ messages.
+
+
+RabbitMQ, and messaging in general, uses some jargon.
+
+
+`Producing` means nothing more than sending. A program that sends messages is a producer :
+
+![alt text](image-5.png)
+
+A `Queue` is the name for the post box in RabbitMQ. Although messages flow through RabbitMQ and your applications, they can only be stored inside a queue. A queue is only bound by the host's memory & disk limits, it's essentially a large message buffer.
+
+Many producers can send messages that go to one queue, and many consumers can try to receive data from one queue.
+
+This is how we represent a queue:
+
+![alt text](image-6.png)
+
+
+`Consuming` has a similar meaning to receiving. A consumer is a program that mostly waits to receive messages:
+
+![alt text](image-7.png)
+
+Note that the producer, consumer, and broker do not have to reside on the same host; indeed in most applications they don't. An application can be both a producer and consumer, too.
+
+
+# Simple RabbitMQ Program in Go
+
+In this part of the tutorial we'll write two small programs in Go; a producer that sends a single message, and a consumer that receives messages and prints them out. 
+
+We'll gloss over some of the detail in the Go RabbitMQ API, concentrating on this very simple thing just to get started. It's the "Hello World" of messaging.
+
+In the diagram below, "P" is our producer and "C" is our consumer. The box in the middle is a queue - a message buffer that RabbitMQ keeps on behalf of the consumer.
+
+![alt text](image-8.png)
+
+The Go RabbitMQ client library
+
+RabbitMQ speaks multiple protocols. This tutorial uses AMQP 0-9-1, which is an open, general-purpose protocol for messaging. There are a number of clients for RabbitMQ in many different languages. We'll use the Go amqp client in this tutorial.
+
+
+- `Installation of Go based amqp library`
+
+
+First, install amqp go library using `go get`:
+
+```bash
+go mod init <your-module-name>
+go get github.com/rabbitmq/amqp091-go
+```
+
+Now we will create two files `send.go` and `receive.go`
+
+- `Sending Messages to Queue`
+
+We'll call our message publisher (sender) `send.go `. The publisher(sender) will connect to RabbitMQ, send a single message, then exit.
+
+![alt text](image-9.png)
+
+
+```go
+
+package main
+
+//we need to import the library first:
+
+import (
+  "context"
+  "log"
+  "time"
+
+  amqp "github.com/rabbitmq/amqp091-go"
+)
+
+//We also need a helper function to check the return value for each amqp call: if error exits
+
+func failOnError(err error, msg string) {
+  if err != nil {
+    log.Panicf("%s: %s", msg, err)
+  }
+}
+
+
+// then create the main function and connect to RabbitMQ server
+
+func main() {
+
+conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+failOnError(err, "Failed to connect to RabbitMQ")
+defer conn.Close()
+  
+  
+/*The connection abstracts the socket connection, and takes care of protocol version negotiation and authentication and so on for us. Next we create a channel, which is where most of the API for getting things done resides:*/
+
+
+ch, err := conn.Channel()
+failOnError(err, "Failed to open a channel")
+defer ch.Close()
+
+//To send, we must declare a queue for us to send to; then we can publish a message to the queue:
+
+// here we will create a queue named as "hello"
+
+q, err := ch.QueueDeclare(
+  "hello", // name
+  false,   // durable
+  false,   // delete when unused
+  false,   // exclusive
+  false,   // no-wait
+  nil,     // arguments
+)
+failOnError(err, "Failed to declare a queue")
+
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+//now we are publishing some messages to queue (note q.Name is our "hello" queue on which we are publishing message (body, which is "Hello World"))
+
+body := "Hello World!"
+err = ch.PublishWithContext(ctx,
+  "",     // exchange
+  q.Name, // routing key
+  false,  // mandatory
+  false,  // immediate
+  amqp.Publishing {
+    ContentType: "text/plain",
+    Body:        []byte(body),
+  })
+failOnError(err, "Failed to publish a message")
+log.Printf(" [x] Sent %s\n", body)
+
+
+/*Declaring a queue is "idempotent" - it will only be created if it doesn't exist already. The message content is a byte array, so you can encode whatever you like there.*/
+
+
+}
+
+```
+
+- `Consuming Messages from Queue`
+
+Our consumer listens for messages from RabbitMQ, so unlike the publisher which publishes a single message, we'll keep the consumer running to listen for messages and print them out.
+
+![alt text](image-10.png)
+
+Create a new directory for the consumer app, like `receiver/receive.go`, to avoid a duplicate declaration.
+
+Setting up is the same as the publisher; we open a connection and a channel, and declare the queue from which we're going to consume. Note this matches up with the queue that send publishes to.
+
+
+Note that we declare the queue here, as well. Because we might start the consumer before the publisher, we want to make sure the queue exists before we try to consume messages from it.
+
+
+```go
+package main
+
+import (
+  "log"
+
+  amqp "github.com/rabbitmq/amqp091-go"
+)
+
+func failOnError(err error, msg string) {
+  if err != nil {
+    log.Panicf("%s: %s", msg, err)
+  }
+}
+
+
+func main(){
+
+conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+failOnError(err, "Failed to connect to RabbitMQ")
+defer conn.Close()
+
+ch, err := conn.Channel()
+failOnError(err, "Failed to open a channel")
+defer ch.Close()
+
+q, err := ch.QueueDeclare(
+  "hello", // name
+  false,   // durable
+  false,   // delete when unused
+  false,   // exclusive
+  false,   // no-wait
+  nil,     // arguments
+)
+failOnError(err, "Failed to declare a queue")
+
+
+/* We're about to tell the server to deliver us the messages from the queue. Since it will push us messages asynchronously, we will read the messages from a channel (returned by amqp::Consume) in a goroutine. */
+
+
+msgs, err := ch.Consume(
+  q.Name, // queue
+  "",     // consumer
+  true,   // auto-ack
+  false,  // exclusive
+  false,  // no-local
+  false,  // no-wait
+  nil,    // args
+)
+failOnError(err, "Failed to register a consumer")
+
+var forever chan struct{}
+
+go func() {
+  for d := range msgs {
+    log.Printf("Received a message: %s", d.Body)
+  }
+}()
+
+log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+<-forever
+
+
+}
+
+```
+
+
+- `To Run Both Scripts`
+
+Now we can run both scripts. In a terminal, run the publisher:
+
+```bash 
+go run send.go
+```
+
+then, run the consumer:
+
+```bash
+go run receiver/receive.go
+```
+
+The consumer will print the message it gets from the publisher via RabbitMQ. The consumer will keep running, waiting for messages (Use Ctrl-C to stop it), so try running the publisher from another terminal.
+
+
+If you want to check on the queue, try using `sudo docker rabbitmqctl list_queues`.
+
+if you are running RabbitMQ server through Docker
 
 
 # Kafka vs RabbitMQ
