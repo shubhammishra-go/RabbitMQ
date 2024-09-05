@@ -654,6 +654,69 @@ go run worker.go
 go run new_task.go
 ```
 
+## Round-Robin dispatching
+
+One of the advantages of using a `Task Queue (Work Queue)` is the ability to easily parallelise work.
+
+If we are building up a backlog of work, we can just add more workers and that way, scale easily.
+
+First, let's try to run two `worker.go (consumer script)` scripts at the same time. They will both get messages from the queue, but how exactly? Let's see.
+
+You need three consoles open. Two will run the worker.go script. These consoles will be our two consumers - C1 and C2.
+
+![alt text](image.png)
+
+```shell
+# shell 1
+go run worker.go
+# => [*] Waiting for messages. To exit press CTRL+C
+```
+
+```shell
+# shell 2
+go run worker.go
+# => [*] Waiting for messages. To exit press CTRL+C
+```
+
+In the third one we'll publish new tasks. Once you've started the consumers you can publish a few messages:
+
+```shell
+# shell 3
+go run new_task.go First message.
+go run new_task.go Second message..
+go run new_task.go Third message...
+go run new_task.go Fourth message....
+go run new_task.go Fifth message.....
+```
+
+Let's see what is delivered to our workers:
+
+
+```shell
+# shell 1
+go run worker.go
+# => [*] Waiting for messages. To exit press CTRL+C
+# => [x] Received 'First message.'
+# => [x] Received 'Third message...'
+# => [x] Received 'Fifth message.....'
+```
+
+```shell
+# shell 2
+go run worker.go
+# => [*] Waiting for messages. To exit press CTRL+C
+# => [x] Received 'Second message..'
+# => [x] Received 'Fourth message....'
+```
+
+By default, RabbitMQ will send each message to the next consumer, in sequence. On average every consumer will get the same number of messages. This way of distributing messages is called round-robin. Try this out with three or more workers.
+
+
+## Message acknowledgment
+
+
+
+
 # Kafka vs RabbitMQ
 
 ...
