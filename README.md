@@ -182,11 +182,18 @@ The latest release of RabbitMQ is `3.13.7`.  can be installed & run using Docker
 
 ```bash 
 docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3.13-management
-```
 
+```
 for full fledge installtion on specific OS, go through documentation
 
 https://www.rabbitmq.com/docs/download
+
+RabbitMQ server running on PORT = 5672 & Its Management UI running on PORT = 15672 !
+
+Intially, when we run our server username=guest & password=guest is already created by RabbitMQ!
+
+we can delete it, can create a new one!
+
 
 
 # About RabbitMQ Jargons (terms used to describe Services)
@@ -233,6 +240,8 @@ In the diagram below, "P" is our producer and "C" is our consumer. The box in th
 The Go RabbitMQ client library
 
 RabbitMQ speaks multiple protocols. This tutorial uses AMQP 0-9-1, which is an open, general-purpose protocol for messaging. There are a number of clients for RabbitMQ in many different languages. We'll use the Go amqp client in this tutorial.
+
+`Note :::` Before Jumping on Code make sure RabbitMQ server is running either on Operating System or on Docker!
 
 
 - `Installation of Go based amqp library`
@@ -344,7 +353,7 @@ Create a new directory for the consumer app, like `receiver/receive.go`, to avoi
 Setting up is the same as the publisher; we open a connection and a channel, and declare the queue from which we're going to consume. Note this matches up with the queue that send publishes to.
 
 
-Note that we declare the queue here, as well. Because we might start the consumer before the publisher, we want to make sure the queue exists before we try to consume messages from it.
+`Note` that we declare the queue here, as well. Because we might start the consumer before the publisher, we want to make sure the queue exists before we try to consume messages from it.
 
 
 ```go
@@ -436,6 +445,214 @@ If you want to check on the queue, try using `sudo docker rabbitmqctl list_queue
 
 if you are running RabbitMQ server through Docker
 
+
+# Queue Description
+
+While decalaration of Queue there are some fields.
+
+```go
+ q, err := ch.QueueDeclare(
+                "task_queue", // name
+                true,         // durable
+                false,        // delete when unused
+                false,        // exclusive
+                false,        // no-wait
+                nil,          // arguments
+        )
+```
+
+- `Queue name` :: Queues have names so that applications can reference them. 
+
+- `Durable` :: the queue will survive a broker restart.
+
+- `Auto-delete` :: queue that has had at least one consumer is deleted when last consumer unsubscribes.
+
+- `Exclusive` :: used by only one connection and the queue will be deleted when that connection closes.
+
+- `Arguments` :: (optional); used by plugins and broker-specific features such as message TTL, queue length limit, etc.
+
+for more informations visit ::: https://www.rabbitmq.com/docs/queues
+
+
+# Work Queues
+
+In the above tutorial (`Simple RabbitMQ Program in Go`) we wrote programs to send and receive messages from a named queue. In this one we'll create a Work Queue that will be used to distribute time-consuming tasks among multiple workers.
+
+The main idea behind Work Queues (aka: Task Queues) is to avoid doing a resource-intensive task immediately and having to wait for it to complete. Instead we schedule the task to be done later. 
+
+We encapsulate a task as a message and send it to a queue. A worker process running in the background will pop the tasks and eventually execute the job. 
+
+When you run many workers the tasks will be shared between them.
+
+This concept is especially useful in web applications where it's impossible to handle a complex task during a short HTTP request window.
+
+
+In the previous part of this tutorial we sent a message containing "Hello World!". Now we'll be sending strings that stand for complex tasks. We don't have a real-world task, like images to be resized or pdf files to be rendered, so let's fake it by just pretending we're busy - by using the `time.Sleep` function. We'll take the number of dots in the string as its complexity; 
+
+every dot will account for one second of "work". For example, a fake task described by `Hello...` will take three seconds.
+
+We will slightly modify the `send.go` code from our previous example, to allow arbitrary messages to be sent from the command line. This program will schedule tasks to our work queue, so let's name it `new_task.go`:
+
+
+```go
+package main
+
+import (
+  "context"
+  "log"
+  "time"
+  "os"
+
+  amqp "github.com/rabbitmq/amqp091-go"
+)
+
+func failOnError(err error, msg string) {
+  if err != nil {
+    log.Panicf("%s: %s", msg, err)
+  }
+}
+
+func bodyFrom(args []string) string {
+	var s string
+	if (len(args) < 2) || os.Args[1] == "" {
+		s = "hello"
+	} else {
+		s = strings.Join(args[1:], " ")
+	}
+	return s
+}
+
+
+func main() {
+
+conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+failOnError(err, "Failed to connect to RabbitMQ")
+defer conn.Close()
+
+
+ch, err := conn.Channel()
+failOnError(err, "Failed to open a channel")
+defer ch.Close()
+
+
+q, err := ch.QueueDeclare(
+  "hello", // name
+  false,   // durable
+  false,   // delete when unused
+  false,   // exclusive
+  false,   // no-wait
+  nil,     // arguments
+)
+failOnError(err, "Failed to declare a queue")
+
+
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+body := bodyFrom(os.Args)
+err = ch.PublishWithContext(ctx,
+  "",           // exchange
+  q.Name,       // routing key
+  false,        // mandatory
+  false,
+  amqp.Publishing {
+    DeliveryMode: amqp.Persistent,
+    ContentType:  "text/plain",
+    Body:         []byte(body),
+  })
+failOnError(err, "Failed to publish a message")
+log.Printf(" [x] Sent %s", body)
+
+
+}
+```
+
+Our old `receive.go` script also requires some changes: it needs to fake a second of work for every dot in the message body. 
+
+It will pop messages from the queue and perform the task, so let's call it `worker.go`:
+
+
+```go
+package main
+
+import (
+  "log"
+
+  amqp "github.com/rabbitmq/amqp091-go"
+)
+
+func failOnError(err error, msg string) {
+  if err != nil {
+    log.Panicf("%s: %s", msg, err)
+  }
+}
+
+
+func main(){
+
+conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+failOnError(err, "Failed to connect to RabbitMQ")
+defer conn.Close()
+
+ch, err := conn.Channel()
+failOnError(err, "Failed to open a channel")
+defer ch.Close()
+
+q, err := ch.QueueDeclare(
+  "hello", // name
+  false,   // durable
+  false,   // delete when unused
+  false,   // exclusive
+  false,   // no-wait
+  nil,     // arguments
+)
+failOnError(err, "Failed to declare a queue")
+
+
+msgs, err := ch.Consume(
+  q.Name, // queue
+  "",     // consumer
+  true,   // auto-ack
+  false,  // exclusive
+  false,  // no-local
+  false,  // no-wait
+  nil,    // args
+)
+failOnError(err, "Failed to register a consumer")
+
+var forever chan struct{}
+
+go func() {
+  for d := range msgs {
+    log.Printf("Received a message: %s", d.Body)
+    dotCount := bytes.Count(d.Body, []byte("."))
+    t := time.Duration(dotCount)
+    time.Sleep(t * time.Second)
+    log.Printf("Done")
+  }
+}()
+
+log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
+<-forever
+
+
+}
+
+```
+
+`Note :` that our fake task simulates execution time.
+
+Run them as in tutorial one:
+
+```shell
+# shell 1
+go run worker.go
+```
+
+```shell
+# shell 2
+go run new_task.go
+```
 
 # Kafka vs RabbitMQ
 
