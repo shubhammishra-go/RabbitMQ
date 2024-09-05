@@ -664,7 +664,7 @@ First, let's try to run two `worker.go (consumer script)` scripts at the same ti
 
 You need three consoles open. Two will run the worker.go script. These consoles will be our two consumers - C1 and C2.
 
-![alt text](image.png)
+![alt text](image11.png)
 
 ```shell
 # shell 1
