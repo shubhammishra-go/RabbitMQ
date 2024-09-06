@@ -660,12 +660,12 @@ Doing a task can take a few seconds, you may wonder what happens if a consumer s
 
 But we don't want to lose any tasks. If a worker dies, we'd like the task to be delivered to another worker.
 
-In order to make sure a message is never lost, RabbitMQ supports `message acknowledgments (https://www.rabbitmq.com/docs/confirms)`. An ack(nowledgement) is sent back by the consumer to tell RabbitMQ that a particular message has been received, processed and that RabbitMQ is free to delete it.
+In order to make sure a message is never lost, RabbitMQ supports `message acknowledgments` (https://www.rabbitmq.com/docs/confirms). An ack(nowledgement) is sent back by the consumer to tell RabbitMQ that a particular message has been received, processed and that RabbitMQ is free to delete it.
 
 If a consumer dies (its channel is closed, connection is closed, or TCP connection is lost) without sending an ack, RabbitMQ will understand that a message wasn't processed fully and will re-queue it. If there are other consumers online at the same time, it will then quickly redeliver it to another consumer. That way you can be sure that no message is lost, even if the workers occasionally die.
 
 
-A timeout (30 minutes by default) is enforced on consumer delivery acknowledgement. This helps detect buggy (stuck) consumers that never acknowledge deliveries. You can increase this timeout as described in `Delivery Acknowledgement Timeout (https://www.rabbitmq.com/docs/consumers#acknowledgement-timeout)`.
+A timeout (30 minutes by default) is enforced on consumer delivery acknowledgement. This helps detect buggy (stuck) consumers that never acknowledge deliveries. You can increase this timeout as described in `Delivery Acknowledgement Timeout` (https://www.rabbitmq.com/docs/consumers#acknowledgement-timeout).
 
 
 In this tutorial we will use manual message acknowledgements by passing a false for the `"auto-ack"` argument and then send a proper acknowledgment from the worker with `d.Ack(false)` (this acknowledges a single delivery), once we're done with a task.
@@ -703,7 +703,7 @@ log.Printf(" [*] Waiting for messages. To exit press CTRL+C")
 Using this code, you can ensure that even if you terminate a worker using CTRL+C while it was processing a message, nothing is lost. Soon after the worker terminates, all unacknowledged messages are redelivered.
 
 
-Acknowledgement must be sent on the same channel that received the delivery. Attempts to acknowledge using a different channel will result in a channel-level protocol exception. See the `doc guide on confirmations (https://www.rabbitmq.com/docs/confirms)` to learn more.
+Acknowledgement must be sent on the same channel that received the delivery. Attempts to acknowledge using a different channel will result in a channel-level protocol exception. See the `doc guide on confirmations` (https://www.rabbitmq.com/docs/confirms) to learn more.
 
 
 - `Forgotten acknowledgment`
@@ -765,7 +765,7 @@ err = ch.PublishWithContext(ctx,
 
 `Note :::` Marking messages as persistent doesn't fully guarantee that a message won't be lost. Although it tells RabbitMQ to save the message to disk, there is still a short time window when RabbitMQ has accepted a message and hasn't saved it yet. Also, RabbitMQ doesn't do `fsync(2)` for every message -- it may be just saved to cache and not really written to the disk. 
 
-The persistence guarantees aren't strong, but it's more than enough for our simple task queue. If you need a stronger guarantee then you can use `publisher confirms (https://www.rabbitmq.com/docs/confirms)`.
+The persistence guarantees aren't strong, but it's more than enough for our simple task queue. If you need a stronger guarantee then you can use `publisher confirms` (https://www.rabbitmq.com/docs/confirms).
 
 
 ## Round-Robin dispatching
